@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Upbit MCP 데모 콘솔</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b35;
+    --text: #e6e9ef; --muted: #9aa4b2; --accent: #3b82f6; --up: #f6465d; --down: #2fb574;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+  }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+  .flow { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .flow code { color: var(--accent); }
+  main { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .panel h2 { margin: 0 0 12px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, select {
+    width: 100%; padding: 8px 10px; background: #0b0d11; color: var(--text);
+    border: 1px solid var(--line); border-radius: 7px; font-size: 13px;
+  }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { cursor: pointer; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line);
+    background: #0b0d11; color: var(--muted); font-size: 12px; }
+  .chip:hover { color: var(--text); border-color: var(--accent); }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+  button { cursor: pointer; padding: 9px 12px; border: none; border-radius: 7px;
+    background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; }
+  button.alt { background: #2a313d; }
+  button:hover { filter: brightness(1.1); }
+  .meta { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 12px; margin-bottom: 12px; }
+  .meta .k { color: var(--muted); }
+  .meta .v { color: var(--text); word-break: break-all; }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tools span { font-size: 11px; padding: 3px 8px; border-radius: 6px; background: #0b0d11; border: 1px solid var(--line); color: var(--down); }
+  pre { background: #0b0d11; border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px; overflow: auto; font-size: 12.5px; line-height: 1.55; white-space: pre; margin: 0; }
+  .status { font-size: 12px; color: var(--muted); margin-top: 10px; min-height: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🪙 Upbit MCP 데모 콘솔</h1>
+  <p>브라우저 UI 는 정적 화면이 아니라 실제 MCP 흐름을 태웁니다.</p>
+  <div class="flow">흐름: Browser UI → <code>Starlette 백엔드(MCP 클라이언트)</code> → <code>ClientSession</code> → <code>MCP 서버</code> → <code>Upbit API</code></div>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>입력</h2>
+    <label for="market">마켓 / 심볼</label>
+    <input id="market" value="KRW-BTC" placeholder="KRW-BTC 또는 btc" />
+    <div class="presets" id="presets"></div>
+
+    <label for="interval">캔들 간격</label>
+    <select id="interval">
+      <option value="days">일봉</option>
+      <option value="weeks">주봉</option>
+      <option value="months">월봉</option>
+      <option value="60">60분봉</option>
+      <option value="15">15분봉</option>
+      <option value="1">1분봉</option>
+    </select>
+
+    <div class="actions">
+      <button onclick="call('ticker')">현재가</button>
+      <button onclick="call('orderbook')">호가창</button>
+      <button onclick="call('candles')">캔들</button>
+      <button onclick="call('trades')">최근 체결</button>
+      <button class="alt" onclick="call('markets')">마켓 목록</button>
+      <button class="alt" onclick="discover()">도구 발견</button>
+    </div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section class="panel">
+    <h2>MCP 호출 결과</h2>
+    <div class="meta">
+      <span class="k">server</span><span class="v" id="m-server">—</span>
+      <span class="k">tool</span><span class="v" id="m-tool">—</span>
+      <span class="k">arguments</span><span class="v" id="m-args">—</span>
+    </div>
+    <div style="margin-bottom:12px">
+      <div class="k" style="font-size:12px;color:var(--muted);margin-bottom:6px">discovered tools</div>
+      <div class="tools" id="m-tools"></div>
+    </div>
+    <pre id="output">버튼을 눌러 MCP 도구를 호출하세요.</pre>
+  </section>
+</main>
+
+<script>
+const PRESETS = ["KRW-BTC","KRW-ETH","KRW-XRP","KRW-SOL","KRW-DOGE","KRW-ADA"];
+const presetBox = document.getElementById("presets");
+PRESETS.forEach(p => {
+  const el = document.createElement("span");
+  el.className = "chip"; el.textContent = p;
+  el.onclick = () => { document.getElementById("market").value = p; };
+  presetBox.appendChild(el);
+});
+
+function setStatus(t) { document.getElementById("status").textContent = t; }
+
+function render(data) {
+  document.getElementById("m-server").textContent = data.server ?? "—";
+  document.getElementById("m-tool").textContent = data.tool ?? "—";
+  document.getElementById("m-args").textContent = data.arguments ? JSON.stringify(data.arguments) : "—";
+  const tools = document.getElementById("m-tools");
+  tools.innerHTML = "";
+  (data.discovered_tools || data.tools || []).forEach(name => {
+    const s = document.createElement("span"); s.textContent = name; tools.appendChild(s);
+  });
+  document.getElementById("output").textContent = data.result ?? JSON.stringify(data, null, 2);
+}
+
+async function call(kind) {
+  const market = encodeURIComponent(document.getElementById("market").value || "KRW-BTC");
+  const interval = document.getElementById("interval").value;
+  let url;
+  if (kind === "ticker") url = `/api/ticker?market=${market}`;
+  else if (kind === "orderbook") url = `/api/orderbook?market=${market}&depth=5`;
+  else if (kind === "candles") url = `/api/candles?market=${market}&interval=${interval}&count=7`;
+  else if (kind === "trades") url = `/api/trades?market=${market}&count=10`;
+  else if (kind === "markets") url = `/api/markets?quote=KRW&limit=30`;
+  setStatus("MCP 서버에 도구를 호출하는 중…");
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    render(data);
+    setStatus("완료");
+  } catch (e) {
+    setStatus("오류: " + e.message);
+  }
+}
+
+async function discover() {
+  setStatus("list_tools() 호출 중…");
+  try {
+    const res = await fetch("/api/tools");
+    const data = await res.json();
+    render({ server: data.server, tool: "list_tools()", arguments: {}, discovered_tools: data.tools,
+             result: "발견된 도구:\n - " + data.tools.join("\n - ") });
+    setStatus("완료");
+  } catch (e) {
+    setStatus("오류: " + e.message);
+  }
+}
+</script>
+</body>
+</html>
